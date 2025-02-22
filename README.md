@@ -1,6 +1,6 @@
-# Civilization VII Cheat Tool
+# Civilization VII Save Editor
 
-Cheat tool for Civ7: edit gold treasury in save file.
+Tool to edit Civ7 save files. You can edit gold treasury.
 
 ## Running With Node.js
 
