@@ -1,11 +1,11 @@
 # Civilization VII Save Editor
 
-Tool to edit Civ7 save files. You can edit gold treasury.
+Tool to edit Civilization 7 save files. You can edit player's gold treasury value.
 
 ## Download
 
 * **[Windows](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-win.exe)**
-* **[Mac](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-macos)**
+* **[MacOS](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-macos)**
 * **[Linux](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-linux)**
 
 ## Running With Node.js
@@ -18,4 +18,6 @@ $ npx civ7-save-editor YourGame.Civ7Save
 
 ## Save File Location
 
-**Linux:** `~/My Games/Sid Meier's Civilization VII/Saves`
+* **Windows:** `%USERPROFILE%\Documents\My Games\Sid Meier's Civilization VII\Saves`
+* **MacOS:** `~/Library/Application Support/Civilization VII/Saves`
+* **Linux:** `~/My Games/Sid Meier's Civilization VII/Saves`
