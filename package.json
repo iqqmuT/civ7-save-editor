@@ -1,6 +1,6 @@
 {
   "name": "civ7-save-editor",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Save editor for Civilization 7",
   "bin": "index.js",
   "main": "index.js",
