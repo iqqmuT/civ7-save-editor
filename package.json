@@ -1,0 +1,39 @@
+{
+  "name": "civ7-save-editor",
+  "version": "0.9.0",
+  "description": "Save editor for Civilization 7",
+  "bin": "index.js",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "files": [
+    "index.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iqqmut/civ7-cheat.git"
+  },
+  "keywords": [
+    "civ7",
+    "civilization",
+    "civilization 7",
+    "civilization vii",
+    "gold",
+    "money",
+    "save editor"
+  ],
+  "author": "Tuomas Jaakola",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/iqqmut/civ7-cheat/issues"
+  },
+  "homepage": "https://github.com/iqqmut/civ7-cheat#readme",
+  "devDependencies": {
+    "eslint": "^9.20.1",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.3",
+    "prettier": "^3.5.1"
+  }
+}
