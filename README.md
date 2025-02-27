@@ -8,6 +8,8 @@ Tool to edit Civilization 7 save files. You can edit player's gold treasury valu
 * **[MacOS](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-macos)**
 * **[Linux](https://github.com/iqqmuT/civ7-save-editor/releases/latest/download/civ7-save-editor-linux)**
 
+Run the downloaded executable in the command line or terminal, and pass the Civ7Save file as the first argument.
+
 ## Running With Node.js
 
 If you have Node.js installed, this is the easiest way:
