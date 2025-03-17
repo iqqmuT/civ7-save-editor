@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
+const fs = require('fs/promises');
 const zlib = require('zlib');
 const readline = require('readline');
 
@@ -10,6 +10,7 @@ const FOOTER_TMP_FILE = '3-footer.dat';
 
 const COMPRESSED_DATA_START = Buffer.from([0, 0, 1, 0, 0x78, 0x9c]);
 const GOLD_MARKER = Buffer.from([0x35, 0xcf, 0xc8, 0x6e]);
+const INFLUENCE_MARKER = Buffer.from([0x50, 0x3c, 0xa8, 0x4a]);
 const PLAYER_SLOT_MARKERS = [
   Buffer.from([0xb8, 0x61, 0xf0, 0xf4]), // player slot #1
   Buffer.from([0x2e, 0x51, 0xf7, 0x83]), // player slot #2
@@ -22,19 +23,58 @@ const PLAYER_SLOT_MARKERS = [
 ];
 const LEADER_MARKER = Buffer.from([0x0f, 0xfb, 0x8c, 0xc1]);
 
-// Reads given Civ7Save file and returns object containing
-// save data in 3 parts:
-// - header: contains player data
-// - body: uncompressed data
-// - footer: end bytes
-function readSaveFile(path) {
-  const buffer = Buffer.from(fs.readFileSync(path));
+/**
+ * @typedef {Object} Player
+ * @property {string} leader The leader name.
+ * @property {number} goldPos Buffer position for gold treasury.
+ * @property {number} influencePos Buffer position for accumulated influence.
+ */
+
+/**
+ * @typedef {Object} SaveFileData
+ * @property {Buffer} header Header part of the save file.
+ * @property {Buffer} body Uncompressed body part of the save file.
+ * @property {Buffer} footer Footer part of the save file.
+ * @property {Array.<Player>} players - Array of player data.
+ */
+
+/**
+ * @typedef {Object} MenuOption
+ * @template T
+ * @property {string} label The display text.
+ * @property {T} value The value to return when selected.
+ */
+
+/**
+ * @typedef {Object} CommandOptions
+ * @property {string} saveFile Path to the save file.
+ * @property {boolean} extract Flag for extract mode.
+ * @property {boolean} stitch Flag for stitch mode.
+ */
+
+/**
+ * Helper function that wraps rl.question in a promise.
+ * @param {readline.Interface} rl Readline interface.
+ * @param {string} query The query to display.
+ * @returns {Promise<string>} Promise that resolves with the user's input.
+ */
+function questionAsync(rl, query) {
+  return new Promise((resolve) => rl.question(query, resolve));
+}
+
+/**
+ * Reads a Civ7Save file and returns a SaveFileData object.
+ * @param {string} path Path to the save file.
+ * @returns {Promise<SaveFileData>}
+ */
+async function readSaveFile(path) {
+  const buffer = Buffer.from(await fs.readFile(path));
   if (buffer.subarray(0, 4).toString() !== 'CIV7') {
     throw new Error('Not a Civilization 7 save file.');
   }
 
   const compressedStart = buffer.indexOf(COMPRESSED_DATA_START);
-  if (compressedStart === undefined) {
+  if (compressedStart === -1) {
     throw new Error('Invalid Civilization 7 save file format.');
   }
 
@@ -49,43 +89,15 @@ function readSaveFile(path) {
   return data;
 }
 
-// Returns array of players and their data.
-function parsePlayers({ header, body }) {
-  // detect gold positions in body data, ordered by player slots
-  const goldPositions = findGold(body, PLAYER_SLOT_MARKERS.length);
-  return PLAYER_SLOT_MARKERS.map((marker, playerIdx) => {
-    const player = {
-      goldPos: goldPositions[playerIdx],
-    };
-    // parse player data from header
-    const pos = header.indexOf(marker);
-    if (pos) {
-      let leaderPos = header.indexOf(LEADER_MARKER, pos);
-      if (leaderPos) {
-        leaderPos += 20;
-        // read string until null terminator and remove LEADER_ prefix
-        player.leader = header
-          .subarray(leaderPos, header.indexOf(0, leaderPos))
-          .toString()
-          .substring(7);
-      }
-    }
-    return player;
-  }).filter((player) => player.leader);
-}
-
-// (Over)writes Civ7Save file with given data parts.
-// The second part will be compressed.
-function writeFile(data, output) {
-  const { header, body, footer } = data;
-  const buffer = Buffer.concat([header, compressData(body), footer]);
-  fs.writeFileSync(output, buffer);
-  console.log(`${output} rewritten.`);
-}
-
 // Default chunk size used with compressed data
 let defaultChunkSize = 64 * 1024;
 
+/**
+ * Reads compressed data from a buffer and returns the decompressed data and
+ * number of bytes read.
+ * @param {Buffer} buffer Buffer containing compressed data.
+ * @returns {[Buffer, number]}
+ */
 function readCompressedData(buffer) {
   const chunks = [];
   let pos = 0;
@@ -109,6 +121,11 @@ function readCompressedData(buffer) {
   ];
 }
 
+/**
+ * Compresses the given data using the deflate algorithm.
+ * @param {Buffer} data Data to compress.
+ * @returns {Buffer} Compressed data with chunk headers.
+ */
 function compressData(data) {
   // use deflate algorithm
   const compressed = zlib.deflateSync(data, {
@@ -138,72 +155,289 @@ function compressData(data) {
   return Buffer.concat(chunks);
 }
 
-// Returns gold positions where gold treasury is written for all players.
-function findGold(body, max) {
+/**
+ * Writes the combined header, compressed body, and footer to the specified
+ * output file.
+ * @param {{header: Buffer, body: Buffer, footer: Buffer}} data Save file data.
+ * @param {string} output Output file path.
+ * @returns {Promise<void>}
+ */
+async function writeFile(data, output) {
+  const { header, body, footer } = data;
+  const buffer = Buffer.concat([header, compressData(body), footer]);
+  await fs.writeFile(output, buffer);
+  console.log(`${output} rewritten.`);
+}
+
+/**
+ * Reads a Civilization VII 24-bit value embedded in a 32-bit low-endian
+ * integer. The value is stored in the 3 most significant bytes, with the least
+ * significant byte used as a header for special cases.
+ *
+ * @param {Buffer} body The buffer that contains the data.
+ * @param {number} pos The position in the buffer where the value is stored.
+ * @returns {number} The extracted 24-bit integer.
+ */
+function readCiv24BitValue(body, pos) {
+  // e.g. 00 FF FF 7F -> 0x7FFFFF
+  const value = body.readUInt32LE(pos);
+  const mainBody = value >> 8;
+
+  // Civ VII custom format: first byte is FF when at max (i.e. +1 to the value).
+  // e.g. FF FF FF 7F -> 0x800000
+  // Get first byte, check if it is FF, and add 1 to the main body if so.
+  const header = value & 0xff;
+
+  return header === 0xff ? mainBody + 1 : mainBody;
+}
+
+/**
+ * Writes a 24-bit value back into the body at the specified position. The value
+ * is stored in the 3 most significant bytes of a 32-bit low-endian integer.
+ *
+ * @param {Buffer} body The buffer that contains the data.
+ * @param {number} pos The position in the buffer where the value will be written.
+ * @param {number} value The 24-bit integer to write back.
+ * @returns {void}
+ */
+function writeCiv24BitValue(body, pos, value) {
+  // Throw if the value is out of bounds.
+  if (value < 0 || value > 0x800000) {
+    throw new Error(
+      'Value out of bounds. Must be between 0 and 8388608, inclusive.',
+    );
+  }
+
+  // For values less than 0x800000, we can write the value directly.
+  if (value < 0x800000) {
+    body.writeUInt32LE(value << 8, pos);
+    return;
+  }
+
+  // For values at 0x800000, we need to write a value of 0x7fffff with a header
+  // of 0xff.
+  body.writeUInt32LE(0x7fffffff, pos);
+}
+
+/**
+ * Finds positions by scanning the buffer for a given marker and adding an
+ * offset.
+ * @param {Buffer} body Buffer to scan.
+ * @param {Buffer} marker Marker to search for.
+ * @param {number} offset Number of bytes to skip after the marker.
+ * @param {number} max Maximum number of positions to return.
+ * @returns {number[]} Array of positions.
+ */
+function findPositions(body, marker, offset, max) {
   const positions = [];
   let pos = 0;
   while (pos < body.length && positions.length < max) {
-    pos = body.indexOf(GOLD_MARKER, pos);
-    if (!pos) {
-      break;
-    }
-    pos += 24;
+    pos = body.indexOf(marker, pos);
+    if (pos === -1) break;
+    pos += offset;
     positions.push(pos);
   }
   return positions;
 }
 
-// Reads gold treasury value from given position.
-function readGold(body, pos) {
-  return body.readUInt32LE(pos) / 256;
+/**
+ * Extracts the leader name from the header given a player slot marker.
+ * @param {Buffer} header Header buffer.
+ * @param {Buffer} playerMarker Marker identifying the player slot.
+ * @returns {string|null} The leader name without the "LEADER_" prefix, or null.
+ * if not found.
+ */
+function getPlayerLeader(header, playerMarker) {
+  const pos = header.indexOf(playerMarker);
+  if (pos === -1) return null;
+  let leaderPos = header.indexOf(LEADER_MARKER, pos);
+  if (leaderPos === -1) return null;
+  leaderPos += 20;
+  const end = header.indexOf(0, leaderPos);
+  if (end === -1) return null;
+  // Remove the "LEADER_" prefix.
+  return header.subarray(leaderPos, end).toString().substring(7);
 }
 
-// Writes gold treasury value into given position.
-function writeGold(body, gold, pos) {
-  body.writeUInt32LE(gold * 256, pos);
-}
-
-function askGold(rl, data, saveFile, player) {
-  const goldNow = parseInt(readGold(data.body, player.goldPos));
-  rl.question(
-    `Enter new amount for gold treasury (${goldNow}): `,
-    (strAnswer) => {
-      let answer = parseInt(strAnswer || goldNow);
-      if (isNaN(answer)) {
-        console.error('Error: value must be a number');
-      } else {
-        writeGold(data.body, answer, player.goldPos);
-      }
-      // go back to main menu
-      printMainMenu(rl, data, saveFile);
-    },
+/**
+ * Parses player data from the header and body portions of the save file.
+ * @param {{header: Buffer, body: Buffer}} data Save file data.
+ * @returns {Array.<Player>} Array of player objects.
+ */
+function parsePlayers({ header, body }) {
+  const goldPositions = findPositions(
+    body,
+    GOLD_MARKER,
+    24,
+    PLAYER_SLOT_MARKERS.length,
   );
+  const influencePositions = findPositions(
+    body,
+    INFLUENCE_MARKER,
+    24,
+    PLAYER_SLOT_MARKERS.length,
+  );
+  return PLAYER_SLOT_MARKERS.map((marker, idx) => {
+    const leader = getPlayerLeader(header, marker);
+    if (!leader) return null;
+    return {
+      leader,
+      goldPos: goldPositions[idx],
+      influencePos: influencePositions[idx],
+    };
+  }).filter(Boolean);
 }
 
-function printMainMenu(rl, data, saveFile) {
-  console.log('');
-  console.log('Please select player slot or function:');
-  console.log('   (0) Save and exit (default)');
-  const { players } = data;
-  players.forEach((player, idx) => {
-    const leader = player.leader || 'unknown';
-    console.log(`   (${idx + 1}) ${leader}`);
+/**
+ * Displays a prompt menu, validates user input, and returns a promise that
+ * resolves with the choice.
+ * @param {readline.Interface} rl Readline interface.
+ * @param {string} promptText Text to display as prompt.
+ * @param {Array.<MenuOption>} options Array of menu option objects.
+ * @param {boolean} allowBack If true, allows going back.
+ * @returns {Promise<any>} The user's choice.
+ */
+async function promptMenu(rl, promptText, options, allowBack) {
+  console.log('\n' + promptText);
+  options.forEach((opt, index) => {
+    console.log(`  (${index + 1}) ${opt.label}`);
   });
-  rl.question('Enter number: (0) ', (strAnswer) => {
-    let answer = +strAnswer;
-    if (answer === '' || isNaN(answer) || answer > players.length) {
-      // invalid answer, retry
-      printMainMenu(rl, data, saveFile);
-    } else if (answer === 0) {
-      // save & exit
-      writeFile(data, saveFile);
+  if (allowBack) {
+    console.log('  (b) Back');
+  }
+  const input = await questionAsync(rl, 'Enter your choice: ');
+  if (allowBack && input.toLowerCase() === 'b') {
+    return 'back';
+  }
+  const choice = parseInt(input, 10);
+  if (isNaN(choice) || choice < 1 || choice > options.length) {
+    console.error('Invalid selection. Please try again.');
+    return await promptMenu(rl, promptText, options, allowBack);
+  }
+  return options[choice - 1].value;
+}
+
+/**
+ * Edits a numeric value (gold or influence) for a given player.
+ * @param {readline.Interface} rl Readline interface.
+ * @param {SaveFileData} data Save file data.
+ * @param {string} type Type of value ('gold' or 'influence').
+ * @param {Player} player Player object containing the position key.
+ * @returns {Promise<void>}
+ */
+async function editValue(rl, data, type, player) {
+  /**
+   * @type {{read: function(Buffer, number): number, write: function(Buffer, number, number), prompt: string, posKey: keyof Player}}
+   */
+  const config = {
+    gold: {
+      read: readCiv24BitValue,
+      write: writeCiv24BitValue,
+      prompt: 'gold treasury',
+      posKey: 'goldPos',
+    },
+    influence: {
+      read: readCiv24BitValue,
+      write: writeCiv24BitValue,
+      prompt: 'accumulated influence',
+      posKey: 'influencePos',
+    },
+  }[type];
+
+  const current = config.read(data.body, player[config.posKey]);
+  const input = await questionAsync(
+    rl,
+    `Enter new amount for ${config.prompt} (${current}) between 0 and 8388608 (or 'b' to cancel): `,
+  );
+  if (input.toLowerCase() === 'b') {
+    return;
+  }
+  const newValue = parseInt(input, 10);
+  if (isNaN(newValue) || newValue < 0 || newValue > 8388608) {
+    console.error('Error: value must be a number between 0 and 8388608.');
+    return await editValue(rl, data, type, player);
+  }
+  config.write(data.body, player[config.posKey], newValue);
+  console.log(`${config.prompt} updated to ${newValue} for ${player.leader}.`);
+}
+
+/**
+ * Presents the player slot menu for editing a specific property.
+ * @param {readline.Interface} rl Readline interface.
+ * @param {SaveFileData} data Save file data.
+ * @param {string} type Type of value to edit.
+ * @returns {Promise<void>}
+ */
+async function playerMenu(rl, data, type) {
+  const players = data.players;
+  if (!players || players.length === 0) {
+    console.error('No player data found.');
+    return;
+  }
+  const options = players.map((player, index) => ({
+    label: player.leader,
+    value: index,
+  }));
+  const choice = await promptMenu(
+    rl,
+    `Select player slot to edit ${type}:`,
+    options,
+    true,
+  );
+  if (choice === 'back') {
+    return;
+  }
+  await editValue(rl, data, type, players[choice]);
+  // After editing, show the same player menu again.
+  await playerMenu(rl, data, type);
+}
+
+/**
+ * Displays the main menu for editing options or exiting the program.
+ * @param {readline.Interface} rl Readline interface.
+ * @param {SaveFileData} data Save file data.
+ * @param {string} saveFile Path to the save file.
+ * @returns {Promise<void>}
+ */
+async function mainMenu(rl, data, saveFile) {
+  const options = [
+    { label: 'Edit gold treasury', value: 'editGold' },
+    { label: 'Edit accumulated influence', value: 'editInfluence' },
+    { label: 'Save and exit', value: 'exit' },
+    { label: 'Exit without saving', value: 'exitNoSave' },
+  ];
+  const choice = await promptMenu(
+    rl,
+    'Main Menu - Please select an option:',
+    options,
+    false,
+  );
+  if (choice === 'exit') {
+    await writeFile(data, saveFile);
+    rl.close();
+  } else if (choice === 'exitNoSave') {
+    const input = await questionAsync(
+      rl,
+      'Are you sure you want to exit without saving? (y/n): ',
+    );
+    if (input.toLowerCase() === 'y') {
       rl.close();
     } else {
-      askGold(rl, data, saveFile, players[answer - 1]);
+      await mainMenu(rl, data, saveFile);
     }
-  });
+  } else if (choice === 'editGold') {
+    await playerMenu(rl, data, 'gold');
+    await mainMenu(rl, data, saveFile);
+  } else if (choice === 'editInfluence') {
+    await playerMenu(rl, data, 'influence');
+    await mainMenu(rl, data, saveFile);
+  }
 }
 
+/**
+ * Displays usage and help information for the save editor.
+ * @returns {void}
+ */
 function printHelp() {
   console.log(`Usage: civ7-save-editor [options] savefile
 
@@ -223,6 +457,10 @@ Options:
             directory.`);
 }
 
+/**
+ * Parses command line options and returns a CommandOptions object.
+ * @returns {CommandOptions}
+ */
 function readOptions() {
   const args = process.argv.slice(2);
 
@@ -239,25 +477,29 @@ function readOptions() {
   };
 }
 
-function run(options) {
+/**
+ * Runs the save editor program with the provided options.
+ * @param {CommandOptions} options - Options object from readOptions.
+ * @returns {Promise<void>}
+ */
+async function run(options) {
   const { saveFile } = options;
   if (options.stitch) {
     // stitch mode, just combine files together
-    const data = {
-      header: Buffer.from(fs.readFileSync(HEADER_TMP_FILE)),
-      body: Buffer.from(fs.readFileSync(BODY_TMP_FILE)),
-      footer: Buffer.from(fs.readFileSync(FOOTER_TMP_FILE)),
-    };
-    writeFile(data, saveFile);
+    const header = await fs.readFile(HEADER_TMP_FILE);
+    const body = await fs.readFile(BODY_TMP_FILE);
+    const footer = await fs.readFile(FOOTER_TMP_FILE);
+    const data = { header, body, footer };
+    await writeFile(data, saveFile);
     return;
   }
 
-  const data = readSaveFile(saveFile);
+  const data = await readSaveFile(saveFile);
   if (options.extract) {
     // extract mode
-    fs.writeFileSync(HEADER_TMP_FILE, data.header);
-    fs.writeFileSync(BODY_TMP_FILE, data.body);
-    fs.writeFileSync(FOOTER_TMP_FILE, data.footer);
+    await fs.writeFile(HEADER_TMP_FILE, data.header);
+    await fs.writeFile(BODY_TMP_FILE, data.body);
+    await fs.writeFile(FOOTER_TMP_FILE, data.footer);
     console.log(
       `Files extracted: ${HEADER_TMP_FILE} ${BODY_TMP_FILE} ${FOOTER_TMP_FILE}`,
     );
@@ -268,10 +510,12 @@ function run(options) {
     output: process.stdout,
   });
   console.log('Create a backup of your save file before making any changes.');
-  printMainMenu(rl, data, saveFile);
+  await mainMenu(rl, data, saveFile);
 }
 
 console.log(
   'Civ7 Save Editor v1.0.0 - https://github.com/iqqmut/civ7-save-editor',
 );
-run(readOptions());
+run(readOptions()).catch((err) => {
+  console.error(err);
+});
