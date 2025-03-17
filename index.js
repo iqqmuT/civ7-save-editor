@@ -514,7 +514,7 @@ async function run(options) {
 }
 
 console.log(
-  'Civ7 Save Editor v1.0.0 - https://github.com/iqqmut/civ7-save-editor',
+  'Civ7 Save Editor v1.1.0 - https://github.com/iqqmut/civ7-save-editor',
 );
 run(readOptions()).catch((err) => {
   console.error(err);
