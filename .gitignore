@@ -1,2 +1,8 @@
 /node_modules
 *.swp
+*.Civ7Save
+# build files
+civ7-save-editor-linux
+civ7-save-editor-macos
+civ7-save-editor-win.exe
+
