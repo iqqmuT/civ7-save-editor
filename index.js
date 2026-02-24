@@ -11,6 +11,7 @@ const FOOTER_TMP_FILE = '3-footer.dat';
 const COMPRESSED_DATA_START = Buffer.from([0, 0, 1, 0, 0x78, 0x9c]);
 const GOLD_MARKER = Buffer.from([0x35, 0xcf, 0xc8, 0x6e]);
 const INFLUENCE_MARKER = Buffer.from([0x50, 0x3c, 0xa8, 0x4a]);
+const FXSBLKED_MARKER = Buffer.from([0x46, 0x58, 0x53, 0x42, 0x4C, 0x4B, 0x45, 0x44]);
 const PLAYER_SLOT_MARKERS = [
   Buffer.from([0xb8, 0x61, 0xf0, 0xf4]), // player slot #1
   Buffer.from([0x2e, 0x51, 0xf7, 0x83]), // player slot #2
@@ -234,6 +235,8 @@ function findPositions(body, marker, offset, max) {
   while (pos < body.length && positions.length < max) {
     pos = body.indexOf(marker, pos);
     if (pos === -1) break;
+    pos = body.indexOf(FXSBLKED_MARKER, pos)
+    if (pos === -1) break;
     pos += offset;
     positions.push(pos);
   }
@@ -268,13 +271,13 @@ function parsePlayers({ header, body }) {
   const goldPositions = findPositions(
     body,
     GOLD_MARKER,
-    24,
+    8,
     PLAYER_SLOT_MARKERS.length,
   );
   const influencePositions = findPositions(
     body,
     INFLUENCE_MARKER,
-    24,
+    8,
     PLAYER_SLOT_MARKERS.length,
   );
   return PLAYER_SLOT_MARKERS.map((marker, idx) => {
