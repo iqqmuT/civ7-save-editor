@@ -25,6 +25,12 @@ $ npx civ7-save-editor YourGame.Civ7Save
 
 ## Save File Location
 
-- **Windows:** `%USERPROFILE%\Documents\My Games\Sid Meier's Civilization VII\Saves`
-- **MacOS:** `~/Library/Application Support/Civilization VII/Saves`
-- **Linux:** `~/My Games/Sid Meier's Civilization VII/Saves`
+### Windows
+- `%USERPROFILE%\Documents\My Games\Sid Meier's Civilization VII\Saves`
+
+### MacOS
+- `~/Library/Application Support/Civilization VII/Saves`
+- `~/Library/Containers/com.2k.civ7aa/Data/Library/Application Support/Civilization VII/Saves`
+
+### Linux
+- `~/My Games/Sid Meier's Civilization VII/Saves`
