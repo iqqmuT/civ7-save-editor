@@ -9,7 +9,7 @@ const BODY_TMP_FILE = '2-body.dat';
 const FOOTER_TMP_FILE = '3-footer.dat';
 
 const COMPRESSED_DATA_START = Buffer.from([0, 0, 1, 0, 0x78, 0x9c]);
-const GOLD_MARKER = Buffer.from([0x35, 0xcf, 0xc8, 0x6e]);
+const GOLD_MARKER = Buffer.from([0x23, 0x1e, 0x99, 0x37]);
 const INFLUENCE_MARKER = Buffer.from([0x50, 0x3c, 0xa8, 0x4a]);
 const FXSBLKED_MARKER = Buffer.from([
   0x46, 0x58, 0x53, 0x42, 0x4c, 0x4b, 0x45, 0x44,
