@@ -350,6 +350,10 @@ async function editValue(rl, data, type, player) {
   }[type];
 
   const current = config.read(data.body, player[config.posKey]);
+  if (player[config.posKey] === undefined) {
+    console.error(`Error: unable to find ${config.prompt} position in data.`);
+    return;
+  }
   const input = await questionAsync(
     rl,
     `Enter new amount for ${config.prompt} (${current}) between 0 and 8388608 (or 'b' to cancel): `,
